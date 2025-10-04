@@ -1,0 +1,62 @@
+[package]
+name = "lua-term"
+description = "A Lua library for non-blocking terminal I/O, powered by crossterm, mlua and tokio."
+version = "0.1.0"
+edition = "2024"
+readme = "README.md"
+license = "MIT"
+repository = "https://github.com/SkyyySi/lua-term"
+exclude = [
+	"Cargo.lock",
+	"target",
+]
+authors = [
+	"SkyyySi",
+]
+categories = [
+	"Asynchronous",
+	"Command-line interface",
+	"Command line utilities",
+]
+
+[lib]
+name = "term"
+crate-type = [
+	"cdylib",
+]
+
+[features]
+default  = ["lua54"]
+lua54    = ["mlua/lua54"]
+lua53    = ["mlua/lua53"]
+lua52    = ["mlua/lua52"]
+lua51    = ["mlua/lua51"]
+luajit   = ["mlua/luajit"]
+luajit52 = ["mlua/luajit52"]
+
+[dependencies]
+
+[dependencies.crossterm]
+version = "0.29"
+features = [
+	"event-stream",
+	"serde",
+	"osc52",
+]
+
+[dependencies.mlua]
+version = "0.10"
+features = [
+	"anyhow",
+	"async",
+	"macros",
+	"module",
+	"serialize",
+	"userdata-wrappers",
+]
+
+[dependencies.tokio]
+version = "1.47"
+features = [
+	"full",
+]
