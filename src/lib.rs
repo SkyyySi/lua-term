@@ -160,61 +160,59 @@ fn event_to_lua(lua: &Lua, event: &Event) -> LuaResult<LuaValue> {
 	}
 }
 
+fn raw_read() -> std::io::Result<Event> {
+	let mut stdout = std::io::stdout();
+
+	enable_raw_mode();
+	let result = execute!(
+		 stdout,
+		 EnableBracketedPaste,
+		 EnableFocusChange,
+		 EnableMouseCapture,
+		 PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::all()),
+	).and_then(|_| read());
+	let cleanup = execute!(
+		 stdout,
+		 DisableBracketedPaste,
+		 DisableFocusChange,
+		 DisableMouseCapture,
+		 PopKeyboardEnhancementFlags,
+	);
+	disable_raw_mode();
+
+	cleanup.and(result)
+}
+
+fn input_loop(lua: &Lua, callback: LuaFunction) -> LuaResult<()> {
+	let mut last_key: Option<KeyEvent> = None;
+
+	loop {
+		let event = raw_read().map_err(LuaError::runtime)?;
+		eprintln!("{event:#?}");
+		callback.call::<()>(event_to_lua(lua, &event)?)?;
+
+		let Event::Key(key) = event else {
+			continue;
+		};
+
+		if matches!(key, KeyEvent {
+			code: KeyCode::Char('c'),
+			modifiers: KeyModifiers::CONTROL,
+			..
+		}) && (last_key == Some(key)) {
+			break;
+		};
+
+		last_key = Some(key);
+	}
+
+	Ok(())
+}
+
 #[mlua::lua_module(name = "term")]
 fn lua_term(lua: &Lua) -> LuaResult<LuaValue> {
 	let exports: LuaTable = table!(lua, {
-		with_raw_mode = lua.create_function(|_lua, (f, args): (LuaFunction, LuaMultiValue)| {
-			let mut stdout = std::io::stdout();
-
-			enable_raw_mode();
-			let result: LuaResult<LuaMultiValue> = execute!(
-				 stdout,
-				 EnableBracketedPaste,
-				 EnableFocusChange,
-				 EnableMouseCapture,
-				 PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::all()),
-			).map_err(LuaError::runtime).and_then(|_| f.call(args));
-			let cleanup = execute!(
-				 stdout,
-				 DisableBracketedPaste,
-				 DisableFocusChange,
-				 DisableMouseCapture,
-				 PopKeyboardEnhancementFlags,
-			);
-			disable_raw_mode();
-
-			cleanup.map_err(LuaError::runtime).and(result)
-		})?,
-		input_loop = lua.create_function(|lua, callback: LuaFunction| {
-			let mut last_key: Option<KeyEvent> = None;
-
-			while let Ok(event) = crossterm::event::read() {
-				eprintln!("{}\r", format!("{event:#?}").replace("\n", "\n\r"));
-
-				let _: () = event_to_table(lua, &event)
-					.and_then(|tb| callback.call(tb))?;
-
-				let Event::Key(key) = event else {
-					continue;
-				};
-
-				if !matches!(key, KeyEvent {
-					code: KeyCode::Char('c'),
-					modifiers: KeyModifiers::CONTROL,
-					..
-				}) {
-					continue;
-				};
-
-				if last_key != Some(key) {
-					continue;
-				};
-
-				break;
-			}
-
-			Ok(())
-		})?,
+		input_loop = lua.create_function(input_loop)?,
 	})?;
 
 	exports.into_lua(lua)
