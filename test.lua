@@ -6,3 +6,6 @@ assert(_VERSION == "Lua 5.4")
 
 local term = require("term")
 print("term = " .. tostring(term))
+
+term.input_loop(function()
+end)
