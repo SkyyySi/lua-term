@@ -11,9 +11,14 @@ use crossterm::{
 		EnableFocusChange,
 		EnableMouseCapture,
 		Event,
+		KeyboardEnhancementFlags,
 		KeyCode,
 		KeyEvent,
 		KeyModifiers,
+		MediaKeyCode,
+		ModifierKeyCode,
+		PushKeyboardEnhancementFlags,
+		PopKeyboardEnhancementFlags,
 	},
 	terminal::{
 		disable_raw_mode,
@@ -63,6 +68,98 @@ macro_rules! table {
 	};
 }
 
+fn keycode_to_string(keycode: &KeyCode) -> String {
+	macro_rules! plain_variants {
+		( $variable:ident, $base:path, [ $( $variant:ident ),+ $(,)? ] $(, $default:expr)? ) => {
+			match $variable {
+				$( <$base>::$variant => {
+					return ::std::stringify!($variant).to_string();
+				}, )+
+				$( _ => $default )?
+			}
+		};
+	}
+
+	plain_variants!(keycode, KeyCode, [
+		Backspace,
+		Enter,
+		Left,
+		Right,
+		Up,
+		Down,
+		Home,
+		End,
+		PageUp,
+		PageDown,
+		Tab,
+		BackTab,
+		Delete,
+		Insert,
+		Null,
+		Esc,
+		CapsLock,
+		ScrollLock,
+		NumLock,
+		PrintScreen,
+		Pause,
+		Menu,
+		KeypadBegin
+	], {});
+
+	match keycode {
+		KeyCode::F(i) => format!("F{i}"),
+		KeyCode::Char(c) => c.to_string(),
+		KeyCode::Media(m) => plain_variants!(m, MediaKeyCode, [
+			Play,
+			Pause,
+			PlayPause,
+			Reverse,
+			Stop,
+			FastForward,
+			Rewind,
+			TrackNext,
+			TrackPrevious,
+			Record,
+			LowerVolume,
+			RaiseVolume,
+			MuteVolume,
+		], unreachable!()),
+		KeyCode::Modifier(m) => plain_variants!(m, ModifierKeyCode, [
+			LeftShift,
+			LeftControl,
+			LeftAlt,
+			LeftSuper,
+			LeftHyper,
+			LeftMeta,
+			RightShift,
+			RightControl,
+			RightAlt,
+			RightSuper,
+			RightHyper,
+			RightMeta,
+			IsoLevel3Shift,
+			IsoLevel5Shift,
+		], unreachable!()),
+		_ => unreachable!(),
+	}
+}
+
+fn event_to_lua(lua: &Lua, event: &Event) -> LuaResult<LuaValue> {
+	match event {
+		Event::FocusGained => todo!(),
+		Event::FocusLost => todo!(),
+		Event::Key(key) => table!(lua, {
+			code = keycode_to_string(&key.code),
+			//modifiers = table!(lua, {})?,
+			//kind = table!(lua, {})?,
+			//state = table!(lua, {})?,
+		})?.into_lua(lua),
+		Event::Mouse(mouse) => todo!(),
+		Event::Paste(text) => todo!(),
+		Event::Resize(width, height) => todo!(),
+	}
+}
+
 #[mlua::lua_module(name = "term")]
 fn lua_term(lua: &Lua) -> LuaResult<LuaValue> {
 	let exports: LuaTable = table!(lua, {
@@ -74,35 +171,46 @@ fn lua_term(lua: &Lua) -> LuaResult<LuaValue> {
 				 stdout,
 				 EnableBracketedPaste,
 				 EnableFocusChange,
-				 EnableMouseCapture
+				 EnableMouseCapture,
+				 PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::all()),
 			).map_err(LuaError::runtime).and_then(|_| f.call(args));
 			let cleanup = execute!(
 				 stdout,
 				 DisableBracketedPaste,
 				 DisableFocusChange,
-				 DisableMouseCapture
+				 DisableMouseCapture,
+				 PopKeyboardEnhancementFlags,
 			);
 			disable_raw_mode();
 
 			cleanup.map_err(LuaError::runtime).and(result)
 		})?,
-		input_loop = lua.create_function(|_lua, callback: LuaFunction| {
+		input_loop = lua.create_function(|lua, callback: LuaFunction| {
 			let mut last_key: Option<KeyEvent> = None;
 
 			while let Ok(event) = crossterm::event::read() {
 				eprintln!("{}\r", format!("{event:#?}").replace("\n", "\n\r"));
 
-				if !matches!(event, Event::Key(KeyEvent {
-					code: KeyCode::Char('c'),
-					modifiers: KeyModifiers::CONTROL,
-					..
-				})) {
+				let _: () = event_to_table(lua, &event)
+					.and_then(|tb| callback.call(tb))?;
+
+				let Event::Key(key) = event else {
 					continue;
 				};
 
-				/*if !matches!(last_key, Some(Event::Key(event))) {
+				if !matches!(key, KeyEvent {
+					code: KeyCode::Char('c'),
+					modifiers: KeyModifiers::CONTROL,
+					..
+				}) {
 					continue;
-				};*/
+				};
+
+				if last_key != Some(key) {
+					continue;
+				};
+
+				break;
 			}
 
 			Ok(())
