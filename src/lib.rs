@@ -33,7 +33,7 @@ macro_rules! table {
 	( $lua:ident, $body:tt $(,)? ) => {
 		::mlua::Result::and_then($crate::table!(;;PARSE_BODY;; $lua, $body), |__table__| {
 			::mlua::Table::set_metatable(&__table__, ::core::option::Option::Some($crate::table!(;;PARSE_BODY;; $lua, {
-				__index = ::std::borrow::ToOwned::to_owned(&__table__),
+				__index = __table__,
 				__tostring = ::mlua::Lua::create_function(&$lua, |lua, this: ::mlua::Table| {
 					::mlua::IntoLua::into_lua(::std::format!("{this:#?}"), &lua)
 				})?,
@@ -48,7 +48,10 @@ macro_rules! table {
 			$( ::mlua::Table::raw_set(
 				&__table__,
 				::mlua::IntoLua::into_lua($crate::table!(;;PARSE_KEY;; $key), &$lua)?,
-				::mlua::IntoLua::into_lua($value, &$lua)?,
+				::mlua::IntoLua::into_lua({
+					let __value_temp__ = $value;
+					::std::borrow::ToOwned::to_owned(&__value_temp__)
+				}, &$lua)?,
 			)?; )*
 
 			::mlua::Result::Ok(__table__)
@@ -60,7 +63,7 @@ macro_rules! table {
 	};
 
 	( ;;PARSE_KEY;; [ $key:expr ] ) => {
-		$key
+		::std::borrow::ToOwned::to_owned($key)
 	};
 
 	( ;;PARSE_KEY;; $key:literal ) => {
@@ -155,8 +158,13 @@ fn event_to_lua(lua: &Lua, event: &Event) -> LuaResult<LuaValue> {
 			//state = table!(lua, {})?,
 		})?.into_lua(lua),
 		Event::Mouse(mouse) => todo!(),
-		Event::Paste(text) => todo!(),
-		Event::Resize(width, height) => todo!(),
+		Event::Paste(text) => text.into_lua(lua),
+		Event::Resize(width, height) => table!(lua, {
+			width  = width,
+			height = height,
+			1      = width,
+			2      = height,
+		}).into_lua(lua),
 	}
 }
 
